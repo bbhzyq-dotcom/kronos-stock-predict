@@ -104,7 +104,31 @@ func (db *DB) UpsertStock(stock *models.Stock) error {
 }
 
 func (db *DB) GetAllStocks() ([]models.Stock, error) {
-	query := `SELECT code, name, market, price, change_pct, volume, updated_at FROM stocks ORDER BY code`
+	query := `
+	SELECT 
+		s.code, 
+		s.name, 
+		s.market, 
+		COALESCE(latest.close, 0) as price,
+		COALESCE(CASE WHEN prev.close > 0 THEN (latest.close - prev.close) / prev.close * 100 ELSE 0 END, 0) as change_pct,
+		COALESCE(latest.volume, 0) as volume,
+		COALESCE(latest.updated_at, s.updated_at) as updated_at
+	FROM stocks s
+	LEFT JOIN (
+		SELECT code, close, volume, timestamp as updated_at
+		FROM klines k1
+		WHERE timestamp = (SELECT MAX(timestamp) FROM klines k2 WHERE k2.code = k1.code)
+	) latest ON s.code = latest.code
+	LEFT JOIN (
+		SELECT code, close
+		FROM klines k1
+		WHERE timestamp = (
+			SELECT MAX(timestamp) FROM klines k2 
+			WHERE k2.code = k1.code AND k2.timestamp < (SELECT MAX(timestamp) FROM klines k3 WHERE k3.code = k1.code)
+		)
+	) prev ON s.code = prev.code
+	ORDER BY s.code
+	`
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -125,7 +149,31 @@ func (db *DB) GetAllStocks() ([]models.Stock, error) {
 }
 
 func (db *DB) GetStock(code string) (*models.Stock, error) {
-	query := `SELECT code, name, market, price, change_pct, volume, updated_at FROM stocks WHERE code = ?`
+	query := `
+	SELECT 
+		s.code, 
+		s.name, 
+		s.market, 
+		COALESCE(latest.close, 0) as price,
+		COALESCE(CASE WHEN prev.close > 0 THEN (latest.close - prev.close) / prev.close * 100 ELSE 0 END, 0) as change_pct,
+		COALESCE(latest.volume, 0) as volume,
+		COALESCE(latest.updated_at, s.updated_at) as updated_at
+	FROM stocks s
+	LEFT JOIN (
+		SELECT code, close, volume, timestamp as updated_at
+		FROM klines k1
+		WHERE timestamp = (SELECT MAX(timestamp) FROM klines k2 WHERE k2.code = k1.code)
+	) latest ON s.code = latest.code
+	LEFT JOIN (
+		SELECT code, close
+		FROM klines k1
+		WHERE timestamp = (
+			SELECT MAX(timestamp) FROM klines k2 
+			WHERE k2.code = k1.code AND k2.timestamp < (SELECT MAX(timestamp) FROM klines k3 WHERE k3.code = k1.code)
+		)
+	) prev ON s.code = prev.code
+	WHERE s.code = ?
+	`
 	var s models.Stock
 	var updatedAtStr string
 	err := db.conn.QueryRow(query, code).Scan(&s.Code, &s.Name, &s.Market, &s.Price, &s.ChangePct, &s.Volume, &updatedAtStr)
