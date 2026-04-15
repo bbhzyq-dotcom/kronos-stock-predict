@@ -1,0 +1,8 @@
+kronos:
+  model_name: "NeoQuasar/Kronos-small"
+  device: "cuda"
+  max_context: 512
+
+server:
+  host: "0.0.0.0"
+  port: 8081

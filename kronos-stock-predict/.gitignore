@@ -1,0 +1,15 @@
+# Gotdx repo (external dependency)
+gotdx_repo/
+
+# Database (large binary file)
+*.db
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
