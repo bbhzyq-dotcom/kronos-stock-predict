@@ -299,9 +299,11 @@ func (db *DB) GetPredictions(code string) ([]models.PredictionRecord, error) {
 	var preds []models.PredictionRecord
 	for rows.Next() {
 		var p models.PredictionRecord
-		if err := rows.Scan(&p.Code, &p.Lookback, &p.Direction, &p.ChangePct, &p.Score, &p.NextOpen, &p.NextHigh, &p.NextLow, &p.NextClose, &p.PredictedAt); err != nil {
+		var predictedAtStr string
+		if err := rows.Scan(&p.Code, &p.Lookback, &p.Direction, &p.ChangePct, &p.Score, &p.NextOpen, &p.NextHigh, &p.NextLow, &p.NextClose, &predictedAtStr); err != nil {
 			return nil, err
 		}
+		p.PredictedAt, _ = time.Parse("2006-01-02T15:04:05Z07:00", predictedAtStr)
 		preds = append(preds, p)
 	}
 	return preds, rows.Err()
@@ -334,12 +336,14 @@ func (db *DB) GetAllPredictions() ([]models.StockPrediction, error) {
 		var direction string
 		var predChangePct, score float64
 		var nextOpen, nextHigh, nextLow, nextClose float64
-		var predictedAt time.Time
+		var predictedAtStr string
 
-		err := rows.Scan(&code, &name, &market, &price, &changePct, &lookback, &direction, &predChangePct, &score, &nextOpen, &nextHigh, &nextLow, &nextClose, &predictedAt)
+		err := rows.Scan(&code, &name, &market, &price, &changePct, &lookback, &direction, &predChangePct, &score, &nextOpen, &nextHigh, &nextLow, &nextClose, &predictedAtStr)
 		if err != nil {
 			continue
 		}
+
+		predictedAt, _ := time.Parse("2006-01-02T15:04:05Z07:00", predictedAtStr)
 
 		if code != lastCode {
 			if currentStock.Stock.Code != "" {
