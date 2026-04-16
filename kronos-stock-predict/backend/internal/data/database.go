@@ -148,6 +148,25 @@ func (db *DB) GetAllStocks() ([]models.Stock, error) {
 	return stocks, rows.Err()
 }
 
+func (db *DB) GetStockNameMap() (map[string]string, error) {
+	query := `SELECT code, name FROM stocks`
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var code, name string
+		if err := rows.Scan(&code, &name); err != nil {
+			continue
+		}
+		result[code] = name
+	}
+	return result, rows.Err()
+}
+
 func (db *DB) GetStock(code string) (*models.Stock, error) {
 	query := `
 	SELECT 

@@ -4,10 +4,15 @@ function DataManager({ stocks, onBack }) {
   const [syncStatus, setSyncStatus] = useState(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState(null)
+  const [dbStats, setDbStats] = useState({ stocks: 0, klines: 0, predictions: 0, stocksWithKlines: 0 })
 
   useEffect(() => {
     fetchSyncStatus()
-    const interval = setInterval(fetchSyncStatus, 5000)
+    fetchDbStats()
+    const interval = setInterval(() => {
+      fetchSyncStatus()
+      fetchDbStats()
+    }, 5000)
     return () => clearInterval(interval)
   }, [])
 
@@ -20,6 +25,19 @@ function DataManager({ stocks, onBack }) {
       }
     } catch (err) {
       console.error('Failed to fetch sync status:', err)
+    }
+  }
+
+  const fetchDbStats = async () => {
+    try {
+      const response = await fetch('/api/stocks')
+      if (response.ok) {
+        const data = await response.json()
+        const withKlines = data.filter(s => s.price > 0).length
+        setDbStats(prev => ({ ...prev, stocks: data.length, stocksWithKlines: withKlines }))
+      }
+    } catch (err) {
+      console.error('Failed to fetch db stats:', err)
     }
   }
 

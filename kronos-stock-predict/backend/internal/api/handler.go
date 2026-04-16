@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,6 +11,18 @@ import (
 	"kronos-stock-predict/backend/internal/models"
 	"kronos-stock-predict/backend/internal/scheduler"
 )
+
+func parseTime(s string) time.Time {
+	s = strings.ReplaceAll(s, " ", "T")
+	if strings.HasSuffix(s, "Z") {
+		s = s[:len(s)-1] + "+00:00"
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
 
 type Handler struct {
 	db        *data.DB
@@ -91,15 +104,10 @@ func (h *Handler) GetAllPredictions(c *gin.Context) {
 		return
 	}
 
-	stocks, err := h.db.GetAllStocks()
+	stockMap, err := h.db.GetStockNameMap()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-
-	stockMap := make(map[string]string)
-	for _, s := range stocks {
-		stockMap[s.Code] = s.Name
 	}
 
 	var results []models.StockPrediction
@@ -121,7 +129,7 @@ func (h *Handler) GetAllPredictions(c *gin.Context) {
 			lastCode = p.Code
 		}
 
-		predictedAt, _ := time.Parse(time.RFC3339, p.PredictedAt)
+		predictedAt := parseTime(p.PredictedAt)
 		currentStock.Predictions = append(currentStock.Predictions, models.PredictionDisplay{
 			Lookback:    p.Lookback,
 			Direction:   p.Direction,

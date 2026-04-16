@@ -2,6 +2,7 @@ package data
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -45,6 +46,7 @@ func (db *PredictionDB) init() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_predictions_code ON predictions(code);
 	CREATE INDEX IF NOT EXISTS idx_predictions_date ON predictions(predicted_date);
+	CREATE INDEX IF NOT EXISTS idx_predictions_code_date ON predictions(code, predicted_date);
 	`
 	_, err := db.conn.Exec(query)
 	return err
@@ -52,6 +54,18 @@ func (db *PredictionDB) init() error {
 
 func (db *PredictionDB) Close() error {
 	return db.conn.Close()
+}
+
+func parsePredictedAt(s string) time.Time {
+	s = strings.ReplaceAll(s, " ", "T")
+	if strings.HasSuffix(s, "Z") {
+		s = s[:len(s)-1] + "+00:00"
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func (db *PredictionDB) UpsertPrediction(record *models.PredictionRecord) error {
@@ -95,7 +109,7 @@ func (db *PredictionDB) GetPredictionsByDate(code string, date string) ([]models
 		if err := rows.Scan(&p.Code, &p.Lookback, &p.Direction, &p.ChangePct, &p.Score, &p.NextOpen, &p.NextHigh, &p.NextLow, &p.NextClose, &predictedAtStr); err != nil {
 			return nil, err
 		}
-		p.PredictedAt, _ = time.Parse(time.RFC3339, predictedAtStr)
+		p.PredictedAt = parsePredictedAt(predictedAtStr)
 		preds = append(preds, p)
 	}
 	return preds, rows.Err()
@@ -121,7 +135,7 @@ func (db *PredictionDB) GetLatestPredictions(code string) ([]models.PredictionRe
 		if err := rows.Scan(&p.Code, &p.Lookback, &p.Direction, &p.ChangePct, &p.Score, &p.NextOpen, &p.NextHigh, &p.NextLow, &p.NextClose, &predictedAtStr); err != nil {
 			return nil, err
 		}
-		p.PredictedAt, _ = time.Parse(time.RFC3339, predictedAtStr)
+		p.PredictedAt = parsePredictedAt(predictedAtStr)
 		preds = append(preds, p)
 	}
 	return preds, rows.Err()
@@ -145,11 +159,11 @@ func (db *PredictionDB) GetAllLatestPredictions() ([]PredictionWithName, error) 
 	query := `
 	SELECT p.code, p.lookback, p.direction, p.change_pct, p.score, p.next_open, p.next_high, p.next_low, p.next_close, p.predicted_at
 	FROM predictions p
-	JOIN (
-		SELECT code, MAX(predicted_date) as max_date
+	WHERE (p.code, p.predicted_date) IN (
+		SELECT code, MAX(predicted_date)
 		FROM predictions
 		GROUP BY code
-	) latest ON p.code = latest.code AND p.predicted_date = latest.max_date
+	)
 	ORDER BY p.code, p.lookback
 	`
 	rows, err := db.conn.Query(query)
