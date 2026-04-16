@@ -1,8 +1,5 @@
-# Gotdx repo (external dependency)
-gotdx_repo/
-
-# Database (large binary file)
-*.db
+# Build output
+backend/server
 
 # Logs
 *.log
