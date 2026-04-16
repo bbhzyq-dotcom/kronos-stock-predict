@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"kronos-stock-predict/backend/internal/data"
@@ -90,7 +91,55 @@ func (h *Handler) GetAllPredictions(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, predictions)
+	stocks, err := h.db.GetAllStocks()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	stockMap := make(map[string]string)
+	for _, s := range stocks {
+		stockMap[s.Code] = s.Name
+	}
+
+	var results []models.StockPrediction
+	currentStock := &models.StockPrediction{}
+	lastCode := ""
+
+	for _, p := range predictions {
+		if p.Code != lastCode {
+			if currentStock.Stock.Code != "" {
+				results = append(results, *currentStock)
+			}
+			currentStock = &models.StockPrediction{
+				Stock: models.Stock{
+					Code: p.Code,
+					Name: stockMap[p.Code],
+				},
+				Predictions: make([]models.PredictionDisplay, 0),
+			}
+			lastCode = p.Code
+		}
+
+		predictedAt, _ := time.Parse(time.RFC3339, p.PredictedAt)
+		currentStock.Predictions = append(currentStock.Predictions, models.PredictionDisplay{
+			Lookback:    p.Lookback,
+			Direction:   p.Direction,
+			ChangePct:   p.ChangePct,
+			Score:       p.Score,
+			NextOpen:    p.NextOpen,
+			NextHigh:    p.NextHigh,
+			NextLow:     p.NextLow,
+			NextClose:   p.NextClose,
+			PredictedAt: predictedAt,
+		})
+	}
+
+	if currentStock.Stock.Code != "" {
+		results = append(results, *currentStock)
+	}
+
+	c.JSON(http.StatusOK, results)
 }
 
 func (h *Handler) GetPrediction(c *gin.Context) {

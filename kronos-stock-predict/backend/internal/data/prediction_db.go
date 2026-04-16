@@ -127,18 +127,29 @@ func (db *PredictionDB) GetLatestPredictions(code string) ([]models.PredictionRe
 	return preds, rows.Err()
 }
 
-func (db *PredictionDB) GetAllLatestPredictions() ([]models.StockPrediction, error) {
+type PredictionWithName struct {
+	Code        string
+	Name        string
+	Lookback    int
+	Direction   string
+	ChangePct   float64
+	Score       float64
+	NextOpen    float64
+	NextHigh    float64
+	NextLow     float64
+	NextClose   float64
+	PredictedAt string
+}
+
+func (db *PredictionDB) GetAllLatestPredictions() ([]PredictionWithName, error) {
 	query := `
-	SELECT p.code, p.lookback, p.direction, p.change_pct, p.score, p.next_open, p.next_high, p.next_low, p.next_close, p.predicted_at, s.name
+	SELECT p.code, p.lookback, p.direction, p.change_pct, p.score, p.next_open, p.next_high, p.next_low, p.next_close, p.predicted_at
 	FROM predictions p
 	JOIN (
 		SELECT code, MAX(predicted_date) as max_date
 		FROM predictions
 		GROUP BY code
 	) latest ON p.code = latest.code AND p.predicted_date = latest.max_date
-	LEFT JOIN (
-		SELECT code, name FROM stocks
-	) s ON p.code = s.code
 	ORDER BY p.code, p.lookback
 	`
 	rows, err := db.conn.Query(query)
@@ -147,54 +158,14 @@ func (db *PredictionDB) GetAllLatestPredictions() ([]models.StockPrediction, err
 	}
 	defer rows.Close()
 
-	var results []models.StockPrediction
-	currentStock := &models.StockPrediction{}
-	var lastCode string
-
+	var results []PredictionWithName
 	for rows.Next() {
-		var code, name string
-		var lookback int
-		var direction string
-		var predChangePct, score float64
-		var nextOpen, nextHigh, nextLow, nextClose float64
-		var predictedAtStr string
-
-		if err := rows.Scan(&code, &lookback, &direction, &predChangePct, &score, &nextOpen, &nextHigh, &nextLow, &nextClose, &predictedAtStr, &name); err != nil {
+		var p PredictionWithName
+		if err := rows.Scan(&p.Code, &p.Lookback, &p.Direction, &p.ChangePct, &p.Score, &p.NextOpen, &p.NextHigh, &p.NextLow, &p.NextClose, &p.PredictedAt); err != nil {
 			continue
 		}
-
-		if code != lastCode {
-			if currentStock.Stock.Code != "" {
-				results = append(results, *currentStock)
-			}
-			currentStock = &models.StockPrediction{
-				Stock: models.Stock{
-					Code: code,
-					Name: name,
-				},
-				Predictions: make([]models.PredictionDisplay, 0),
-			}
-			lastCode = code
-		}
-
-		predictedAt, _ := time.Parse(time.RFC3339, predictedAtStr)
-		currentStock.Predictions = append(currentStock.Predictions, models.PredictionDisplay{
-			Lookback:    lookback,
-			Direction:   direction,
-			ChangePct:   predChangePct,
-			Score:       score,
-			NextOpen:    nextOpen,
-			NextHigh:    nextHigh,
-			NextLow:     nextLow,
-			NextClose:   nextClose,
-			PredictedAt: predictedAt,
-		})
+		results = append(results, p)
 	}
-
-	if currentStock.Stock.Code != "" {
-		results = append(results, *currentStock)
-	}
-
 	return results, rows.Err()
 }
 
