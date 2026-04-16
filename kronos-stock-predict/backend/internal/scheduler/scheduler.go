@@ -17,6 +17,7 @@ import (
 
 type Scheduler struct {
 	db       *data.DB
+	predDB   *data.PredictionDB
 	tdx      *gotdx.Client
 	predURL  string
 	running  bool
@@ -24,9 +25,10 @@ type Scheduler struct {
 	stopChan chan struct{}
 }
 
-func NewScheduler(db *data.DB, tdx *gotdx.Client, predURL string) *Scheduler {
+func NewScheduler(db *data.DB, predDB *data.PredictionDB, tdx *gotdx.Client, predURL string) *Scheduler {
 	return &Scheduler{
 		db:       db,
+		predDB:   predDB,
 		tdx:      tdx,
 		predURL:  predURL,
 		stopChan: make(chan struct{}),
@@ -278,6 +280,6 @@ func (s *Scheduler) calculateAndSavePredictions(code string, klines []models.Kli
 			NextLow:   pred.NextKline.Low,
 			NextClose: pred.NextKline.Close,
 		}
-		s.db.UpsertPrediction(record)
+		s.predDB.UpsertPrediction(record)
 	}
 }

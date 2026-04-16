@@ -12,16 +12,18 @@ import (
 
 type Handler struct {
 	db        *data.DB
+	predDB    *data.PredictionDB
 	tdx       *gotdx.Client
 	scheduler *scheduler.Scheduler
 }
 
-func NewHandler(db *data.DB, tdx *gotdx.Client, predURL string) *Handler {
+func NewHandler(db *data.DB, predDB *data.PredictionDB, tdx *gotdx.Client, predURL string) *Handler {
 	h := &Handler{
-		db:  db,
-		tdx: tdx,
+		db:     db,
+		predDB: predDB,
+		tdx:    tdx,
 	}
-	h.scheduler = scheduler.NewScheduler(db, tdx, predURL)
+	h.scheduler = scheduler.NewScheduler(db, predDB, tdx, predURL)
 	return h
 }
 
@@ -31,6 +33,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	r.GET("/api/kline/:code", h.GetKline)
 	r.GET("/api/predictions", h.GetAllPredictions)
 	r.GET("/api/prediction/:code", h.GetPrediction)
+	r.GET("/api/predictions/dates", h.GetPredictionDates)
 	r.GET("/api/sync/status", h.GetSyncStatus)
 	r.POST("/api/sync/trigger", h.TriggerSync)
 	r.POST("/api/sync/incremental", h.TriggerIncrementalSync)
@@ -81,7 +84,7 @@ func (h *Handler) GetKline(c *gin.Context) {
 }
 
 func (h *Handler) GetAllPredictions(c *gin.Context) {
-	predictions, err := h.db.GetAllPredictions()
+	predictions, err := h.predDB.GetAllLatestPredictions()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -92,6 +95,7 @@ func (h *Handler) GetAllPredictions(c *gin.Context) {
 
 func (h *Handler) GetPrediction(c *gin.Context) {
 	code := c.Param("code")
+	date := c.Query("date")
 
 	stock, err := h.db.GetStock(code)
 	if err != nil {
@@ -99,7 +103,12 @@ func (h *Handler) GetPrediction(c *gin.Context) {
 		return
 	}
 
-	predictions, err := h.db.GetPredictions(code)
+	var preds []models.PredictionRecord
+	if date != "" {
+		preds, err = h.predDB.GetPredictionsByDate(code, date)
+	} else {
+		preds, err = h.predDB.GetLatestPredictions(code)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -110,7 +119,7 @@ func (h *Handler) GetPrediction(c *gin.Context) {
 		Predictions: make([]models.PredictionDisplay, 0),
 	}
 
-	for _, p := range predictions {
+	for _, p := range preds {
 		result.Predictions = append(result.Predictions, models.PredictionDisplay{
 			Lookback:    p.Lookback,
 			Direction:   p.Direction,
@@ -125,6 +134,22 @@ func (h *Handler) GetPrediction(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) GetPredictionDates(c *gin.Context) {
+	dates, err := h.predDB.GetAvailableDates()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	total, days, _ := h.predDB.GetPredictionStats()
+
+	c.JSON(http.StatusOK, gin.H{
+		"dates":             dates,
+		"total_predictions": total,
+		"days_with_data":    days,
+	})
 }
 
 func (h *Handler) GetSyncStatus(c *gin.Context) {

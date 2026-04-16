@@ -47,9 +47,15 @@ func main() {
 
 	db, err := data.NewDB(cfg.Database.Path)
 	if err != nil {
-		log.Fatalf("init db: %v", err)
+		log.Fatalf("init stock db: %v", err)
 	}
 	defer db.Close()
+
+	predDB, err := data.NewPredictionDB("prediction.db")
+	if err != nil {
+		log.Fatalf("init prediction db: %v", err)
+	}
+	defer predDB.Close()
 
 	tdx, err := gotdx.NewClient()
 	if err != nil {
@@ -68,7 +74,7 @@ func main() {
 		c.File("./static/index.html")
 	})
 
-	h := api.NewHandler(db, tdx, cfg.Prediction.URL)
+	h := api.NewHandler(db, predDB, tdx, cfg.Prediction.URL)
 	h.RegisterRoutes(r)
 
 	h.StartScheduler()
