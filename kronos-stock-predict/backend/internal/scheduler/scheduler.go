@@ -51,7 +51,7 @@ func (s *Scheduler) run() {
 
 		select {
 		case <-time.After(duration):
-			s.runSync()
+			s.RunIncrementalSync()
 		case <-s.stopChan:
 			log.Printf("[Scheduler] Stopped")
 			return
@@ -61,7 +61,7 @@ func (s *Scheduler) run() {
 
 func (s *Scheduler) nextRunTime(now time.Time) time.Time {
 	targetHour := 16
-	targetMinute := 30
+	targetMinute := 0
 
 	next := time.Date(now.Year(), now.Month(), now.Day(), targetHour, targetMinute, 0, 0, now.Location())
 
@@ -73,10 +73,14 @@ func (s *Scheduler) nextRunTime(now time.Time) time.Time {
 }
 
 func (s *Scheduler) RunOnce() {
-	go s.runSync()
+	go s.runFullSync()
 }
 
-func (s *Scheduler) runSync() {
+func (s *Scheduler) RunIncrementalSync() {
+	go s.runIncrementalSync()
+}
+
+func (s *Scheduler) runFullSync() {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
@@ -92,7 +96,7 @@ func (s *Scheduler) runSync() {
 		s.mu.Unlock()
 	}()
 
-	log.Printf("[Scheduler] Starting daily sync...")
+	log.Printf("[Scheduler] Starting full sync (150 K-lines)...")
 	startTime := time.Now()
 
 	allStocks, err := s.tdx.GetStockList()
@@ -136,7 +140,86 @@ func (s *Scheduler) runSync() {
 
 	s.db.UpdateSyncStatus("completed", len(allStocks), len(allStocks))
 
-	log.Printf("[Scheduler] Sync completed in %s", time.Since(startTime))
+	log.Printf("[Scheduler] Full sync completed in %s", time.Since(startTime))
+}
+
+func (s *Scheduler) runIncrementalSync() {
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		log.Printf("[Scheduler] Sync already running, skipping")
+		return
+	}
+	s.running = true
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+	}()
+
+	log.Printf("[Scheduler] Starting incremental sync (1 K-line + predictions)...")
+	startTime := time.Now()
+
+	allStocks, err := s.tdx.GetStockList()
+	if err != nil {
+		log.Printf("[Scheduler] Failed to get stock list: %v", err)
+		s.db.UpdateSyncStatus("failed", 0, 0)
+		return
+	}
+
+	s.db.UpdateSyncStatus("running", len(allStocks), 0)
+
+	for i, stock := range allStocks {
+		select {
+		case <-s.stopChan:
+			log.Printf("[Scheduler] Sync interrupted")
+			return
+		default:
+		}
+
+		if i%100 == 0 {
+			s.db.UpdateSyncStatus("running", len(allStocks), i)
+		}
+
+		latestKlineDate, err := s.db.GetLatestKlineDate(stock.Code)
+		if err != nil {
+			continue
+		}
+
+		klines, err := s.tdx.GetKline(stock.Code, stock.Market, 5)
+		if err != nil || len(klines) == 0 {
+			continue
+		}
+
+		newKlines := []models.Kline{}
+		for _, k := range klines {
+			if k.Timestamp.After(latestKlineDate) {
+				newKlines = append(newKlines, k)
+			}
+		}
+
+		if len(newKlines) == 0 {
+			continue
+		}
+
+		s.db.UpsertKlines(newKlines)
+
+		for _, k := range newKlines {
+			stock.Price = k.Close
+		}
+		s.db.UpsertStock(&stock)
+
+		fullKlines, _ := s.db.GetKlines(stock.Code, 150)
+		if len(fullKlines) > 0 {
+			s.calculateAndSavePredictions(stock.Code, fullKlines)
+		}
+	}
+
+	s.db.UpdateSyncStatus("completed", len(allStocks), len(allStocks))
+
+	log.Printf("[Scheduler] Incremental sync completed in %s", time.Since(startTime))
 }
 
 func (s *Scheduler) calculateAndSavePredictions(code string, klines []models.Kline) {

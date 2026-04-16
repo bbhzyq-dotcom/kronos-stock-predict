@@ -33,6 +33,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	r.GET("/api/prediction/:code", h.GetPrediction)
 	r.GET("/api/sync/status", h.GetSyncStatus)
 	r.POST("/api/sync/trigger", h.TriggerSync)
+	r.POST("/api/sync/incremental", h.TriggerIncrementalSync)
 	r.GET("/api/health", h.Health)
 }
 
@@ -152,7 +153,12 @@ func (h *Handler) GetSyncStatus(c *gin.Context) {
 
 func (h *Handler) TriggerSync(c *gin.Context) {
 	h.scheduler.RunOnce()
-	c.JSON(http.StatusOK, gin.H{"message": "Sync triggered"})
+	c.JSON(http.StatusOK, gin.H{"message": "Full sync triggered"})
+}
+
+func (h *Handler) TriggerIncrementalSync(c *gin.Context) {
+	h.scheduler.RunIncrementalSync()
+	c.JSON(http.StatusOK, gin.H{"message": "Incremental sync triggered"})
 }
 
 func (h *Handler) Health(c *gin.Context) {
